@@ -44,7 +44,7 @@ Usage: myapp -f <from> -t <to> [-s subject] [-b body] [-p port]
 printf 'This is the message body.\n.A line starting with a dot.\n' | \
   ./build/release/myapp -f me@boisestate.edu -t you@example.com \
   -s 'hello' -H onyx.boisestate.edu -p 2525 \
-  ec2-54-148-3-55.us-west-2.compute.amazonaws.com
+  <server>
 ```
 
 ## Design
