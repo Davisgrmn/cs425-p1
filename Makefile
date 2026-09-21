@@ -23,17 +23,17 @@ ifeq ($(BUILD),release)
   BUILD_DIR := $(BUILD_BASE_DIR)/release
   TARGET ?= $(BUILD_DIR)/$(APP_NAME)
 else ifeq ($(BUILD),debug)
-  CFLAGS := -g -O0 -DDEBUG -fno-omit-frame-pointer -fsanitize=address
+  CFLAGS += -g -O0 -DDEBUG -fno-omit-frame-pointer -fsanitize=address
   LDFLAGS += -fsanitize=address
   BUILD_DIR := $(BUILD_BASE_DIR)/debug
   TARGET ?= $(BUILD_DIR)/$(APP_NAME)_d
 else ifeq ($(BUILD),test)
-  CFLAGS := -g -O0 -DTEST -fprofile-arcs -ftest-coverage
+  CFLAGS += -g -O0 -DTEST -fprofile-arcs -ftest-coverage
   LDFLAGS += -fprofile-arcs -ftest-coverage
   BUILD_DIR := $(BUILD_BASE_DIR)/tests
   TEST_TARGET ?= $(BUILD_DIR)/$(APP_NAME)_t
 else ifeq ($(BUILD),debug-test)
-  CFLAGS := -g -O0 -DDEBUG -DTEST -fno-omit-frame-pointer -fsanitize=address
+  CFLAGS += -g -O0 -DDEBUG -DTEST -fno-omit-frame-pointer -fsanitize=address
   LDFLAGS += -fsanitize=address
   BUILD_DIR := $(BUILD_BASE_DIR)/debug-test
   TEST_TARGET ?= $(BUILD_DIR)/$(APP_NAME)_td
@@ -70,7 +70,7 @@ $(BUILD_DIR)/%.c.o: $(TEST_DIR)/%.c
 
 
 # Targets for running tests and cleaning up
-.PHONY: release debug test debug-test all clean print check report report-txt leak leak-test
+.PHONY: release debug test debug-test all clean print check report leak leak-test integration help
 # These targets allow you to build in different modes without changing the BUILD variable
 # You can run `make debug`, `make release`, etc.
 # Each target will set the BUILD variable and call the main Makefile target
@@ -84,7 +84,7 @@ debug-test:
 	$(MAKE) BUILD=debug-test
 
 all:
-	@if [[ -e $(SRC_DIR)/main.c ]]; then \
+	@set -e; if [[ -e $(SRC_DIR)/main.c ]]; then \
 		$(MAKE) BUILD=debug; \
 		$(MAKE) BUILD=release; \
 		$(MAKE) BUILD=test; \
@@ -105,7 +105,7 @@ _all-exe: debug release debug-test test
 
 _all-text: test debug-test
 
-leak:
+leak: debug
 	@if [[ -e ./build/debug/$(APP_NAME)_d ]]; then \
 		ASAN_OPTIONS="detect_leaks=1" ./build/debug/$(APP_NAME)_d; \
 	else \
@@ -113,7 +113,7 @@ leak:
 		exit 1; \
 	fi
 
-leak-test:
+leak-test: debug-test
 	@if [[ -e ./build/debug-test/$(APP_NAME)_td ]]; then \
 		ASAN_OPTIONS="detect_leaks=1" ./build/debug-test/$(APP_NAME)_td; \
 	else \
@@ -121,7 +121,7 @@ leak-test:
 		exit 1; \
 	fi
 
-check:
+check: test
 	@if [[ -e ./build/tests/$(APP_NAME)_t ]]; then \
 		./build/tests/$(APP_NAME)_t; \
 	else \
@@ -129,19 +129,18 @@ check:
 		exit 1; \
 	fi
 
+integration: release
+	python3 tests/cli-test.py ./build/release/$(APP_NAME)
 
-report:
-	@if [[ -e ./build/tests/$(APP_NAME)_t ]]; then \
-		./build/tests/$(APP_NAME)_t; \
-	else \
-		echo "Build the debug target first by running 'make test'."; \
-		exit 1; \
-	fi
-	./build/tests/$(APP_NAME)_t
-	mkdir -p ./build/report/html
-	mkdir -p ./build/report/txt
-	gcovr -r . --html --html-details --exclude-directories build/tests/harness --exclude '.*main\.c$$' --exclude '.*test\.c$$' -o ./build/report/html/coverage_report.html
-	gcovr -r . --txt                 --exclude-directories build/tests/harness --exclude '.*main\.c$$' --exclude '.*test\.c$$'
+# Keep the starter's main/test harness exclusions. Only system/library failure
+# branches inside src are excluded; protocol and session logic are all measured.
+COVERAGE_FLAGS = -r . --filter 'src/' --exclude '.*main\.c$$' --exclude '.*test\.c$$'
+report: check
+	mkdir -p ./build/report/html ./build/report/txt
+	gcovr $(COVERAGE_FLAGS) --html --html-details -o ./build/report/html/coverage_report.html
+	gcovr $(COVERAGE_FLAGS) --txt -o ./build/report/txt/coverage_report.txt --fail-under-line 100 --fail-under-branch 100
+	cat ./build/report/txt/coverage_report.txt
+	gcovr $(COVERAGE_FLAGS) --txt --branches
 
 
 help:
@@ -152,6 +151,7 @@ help:
 	@echo "  debug       - Build the application in debug mode"
 	@echo "  test        - Build the unit tests"
 	@echo "  check       - Run tests and check results"
+	@echo "  integration - Test the command line against a local scripted TCP server"
 	@echo "  report      - Generate HTML and TXT coverage report after running tests"
 	@echo "  leak        - Check for memory leaks in executable debug mode"
 	@echo "  leak-test   - Check for memory leaks in unit tests debug mode"
@@ -161,7 +161,7 @@ help:
 
 
 clean:
-	$(RM) -rf $(BUILD_BASE_DIR) submission-report.md
+	$(RM) -rf $(BUILD_BASE_DIR)
 
 # Print the build configuration and variables for debugging build issues
 print:
